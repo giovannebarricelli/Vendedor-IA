@@ -3,12 +3,22 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-const { GEMINI_KEY, EVOLUTION_URL, EVOLUTION_KEY, INSTANCE_NAME } = process.env;
+// Extraindo as variáveis do Environment do Render
+const { 
+    GEMINI_KEY, 
+    EVOLUTION_URL, 
+    EVOLUTION_KEY, 
+    INSTANCE_NAME,
+    BUSINESS_NAME, 
+    ADS_LED, 
+    ADS_AUTO, 
+    SOCIAL_CAUSE 
+} = process.env;
 
 app.post('/webhook', async (req, res) => {
     const data = req.body;
-    
-    // Processa apenas mensagens recebidas que não são de grupos
+
+    // Filtro: Processa apenas mensagens recebidas de conversas individuais (ignora grupos e o próprio bot)
     if (data.event === 'messages.upsert' && !data.data.key.fromMe && !data.data.key.remoteJid.includes('@g.us')) {
         const remoteJid = data.data.key.remoteJid;
         const msg = data.data.message.conversation || data.data.message.extendedTextMessage?.text;
@@ -16,39 +26,51 @@ app.post('/webhook', async (req, res) => {
         if (!msg) return res.sendStatus(200);
 
         try {
-            // Status "Digitando..." na Evolution
-            await axios.post(`${EVOLUTION_URL}/chat/sendPresence/${INSTANCE_NAME}`, 
+            // Ajuste do Nome da Instância para a URL (corrige o erro de espaços)
+            const encodedInstance = encodeURIComponent(INSTANCE_NAME);
+
+            // Mostra "Digitando..." no WhatsApp do cliente
+            await axios.post(`${EVOLUTION_URL}/chat/sendPresence/${encodedInstance}`, 
                 { remoteJid, presence: 'composing' }, 
                 { headers: { 'apikey': EVOLUTION_KEY } }
             ).catch(() => {});
 
-            // Prompt com a inteligência da VML Brasil
-            const prompt = `Você é o Consultor Especialista da VML Brasil. 
-            Identifique o interesse do cliente:
-            1. Se for Anúncio/LED/Painel: Fale dos 7 painéis estratégicos em Caldas Novas.
-            2. Se for Automação/WhatsApp/Robô: Fale do FlowZap 2.0.
-            3. Social: Mencione que apoiamos o Hospital de Amor (Barretos).
-            Regra: Responda de forma curta, direta e termine com uma pergunta.
-            Pergunta do cliente: ${msg}`;
+            // Prompt Estratégico da VML Brasil
+            const prompt = `Você é o Consultor Especialista da ${BUSINESS_NAME}.
+            Use os dados abaixo para responder o cliente de forma elegante, divertida e profissional:
+            - Sobre os Painéis de LED: ${ADS_LED}
+            - Sobre a Automação (FlowZap): ${ADS_AUTO}
+            - Compromisso Social: ${SOCIAL_CAUSE}
+            
+            Regras:
+            1. Identifique se o interesse é LED ou Automação.
+            2. Seja breve e nunca deixe de terminar com uma pergunta.
+            3. Responda à pergunta do cliente: ${msg}`;
 
-            // Chamada direta para o Gemini
+            // Chamada ao Gemini
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
                 contents: [{ parts: [{ text: prompt }] }]
             });
 
-            const reply = response.data.candidates[0].content.parts[0].text;
+            const replyText = response.data.candidates[0].content.parts[0].text;
 
-            // Envia a resposta final para o cliente
-            await axios.post(`${EVOLUTION_URL}/message/sendText/${INSTANCE_NAME}`, {
+            // Envio da resposta final via Evolution API (Caminho /chat/)
+            await axios.post(`${EVOLUTION_URL}/chat/sendText/${encodedInstance}`, {
                 number: remoteJid.split('@')[0],
-                text: reply
+                text: replyText
             }, { headers: { 'apikey': EVOLUTION_KEY } });
 
-        } catch (e) {
-            console.error('Erro no fluxo:', e.message);
+            console.log(`[VML] Resposta enviada com sucesso para ${remoteJid}`);
+
+        } catch (error) {
+            // Log detalhado para capturarmos qualquer erro da Evolution
+            console.error('[VML Erro]:', error.response?.data || error.message);
         }
     }
     res.sendStatus(200);
 });
 
-app.listen(process.env.PORT || 10000, () => console.log('VML Online com Gemini!'));
+// Porta padrão do Render
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`[VML] ${BUSINESS_NAME} Online na porta ${PORT}!`));
+
