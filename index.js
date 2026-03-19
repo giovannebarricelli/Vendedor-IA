@@ -18,7 +18,7 @@ const {
 app.post('/webhook', async (req, res) => {
     const data = req.body;
 
-    // Filtro: Processa apenas mensagens recebidas de conversas individuais (ignora grupos e o próprio bot)
+    // Filtro: Processa apenas mensagens recebidas de conversas individuais
     if (data.event === 'messages.upsert' && !data.data.key.fromMe && !data.data.key.remoteJid.includes('@g.us')) {
         const remoteJid = data.data.key.remoteJid;
         const msg = data.data.message.conversation || data.data.message.extendedTextMessage?.text;
@@ -26,51 +26,51 @@ app.post('/webhook', async (req, res) => {
         if (!msg) return res.sendStatus(200);
 
         try {
-            // Ajuste do Nome da Instância para a URL (corrige o erro de espaços)
+            // Ajuste do Nome da Instância para a URL (corrige espaços e caracteres especiais)
             const encodedInstance = encodeURIComponent(INSTANCE_NAME);
+            
+            // Remove qualquer barra final da URL para evitar erro // no link
+            const cleanUrl = EVOLUTION_URL.replace(/\/$/, "");
 
-            // Mostra "Digitando..." no WhatsApp do cliente
-            await axios.post(`${EVOLUTION_URL}/chat/sendPresence/${encodedInstance}`, 
+            // Status "Digitando..."
+            await axios.post(`${cleanUrl}/chat/sendPresence/${encodedInstance}`, 
                 { remoteJid, presence: 'composing' }, 
                 { headers: { 'apikey': EVOLUTION_KEY } }
             ).catch(() => {});
 
-            // Prompt Estratégico da VML Brasil
+            // Prompt VML Brasil
             const prompt = `Você é o Consultor Especialista da ${BUSINESS_NAME}.
-            Use os dados abaixo para responder o cliente de forma elegante, divertida e profissional:
-            - Sobre os Painéis de LED: ${ADS_LED}
-            - Sobre a Automação (FlowZap): ${ADS_AUTO}
-            - Compromisso Social: ${SOCIAL_CAUSE}
+            Use estes dados para responder:
+            - LED: ${ADS_LED}
+            - Automação: ${ADS_AUTO}
+            - Social: ${SOCIAL_CAUSE}
             
-            Regras:
-            1. Identifique se o interesse é LED ou Automação.
-            2. Seja breve e nunca deixe de terminar com uma pergunta.
-            3. Responda à pergunta do cliente: ${msg}`;
+            Regras: Seja formal mas divertido, responda curto e sempre termine com uma pergunta.
+            Cliente disse: ${msg}`;
 
-            // Chamada ao Gemini
-            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
+            // Chamada ao Gemini (Versão v1 estável)
+            const response = await axios.post(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`, {
                 contents: [{ parts: [{ text: prompt }] }]
             });
 
             const replyText = response.data.candidates[0].content.parts[0].text;
 
-            // Envio da resposta final via Evolution API (Caminho /chat/)
-            await axios.post(`${EVOLUTION_URL}/chat/sendText/${encodedInstance}`, {
+            // Envio via Evolution API
+            await axios.post(`${cleanUrl}/chat/sendText/${encodedInstance}`, {
                 number: remoteJid.split('@')[0],
                 text: replyText
             }, { headers: { 'apikey': EVOLUTION_KEY } });
 
-            console.log(`[VML] Resposta enviada com sucesso para ${remoteJid}`);
+            console.log(`[VML] Resposta enviada para ${remoteJid}`);
 
         } catch (error) {
-            // Log detalhado para capturarmos qualquer erro da Evolution
             console.error('[VML Erro]:', error.response?.data || error.message);
         }
     }
     res.sendStatus(200);
 });
 
-// Porta padrão do Render
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`[VML] ${BUSINESS_NAME} Online na porta ${PORT}!`));
+
 
